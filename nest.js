@@ -17,16 +17,25 @@ const path = require('path');
 
 const baseUrl = 'https://developer-api.nest.com';
 
-// config.json is in root directory, and this file is in ./util
-const configPath = path.join(__dirname, './config.json');
-const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+// config.json is in root directory
+let config;
+try {
+  const configPath = path.join(__dirname, './config.json');
+  config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+} catch (e) {
+  console.error('Missing config.json, please copy from config.example.json and setup.');
+  process.exit(1);
+}
+
+if (!config) {
+  console.error('Missing config.json, please copy from config.example.json and setup.');
+  process.exit(1);
+}
 
 const {
   device,
   token
 } = config;
-
-let read = false;
 
 const options = {
   'headers': {
@@ -50,9 +59,7 @@ if (argv.length > 2) {
   options.url = `${baseUrl}/devices/thermostats/${device}`;
   options.removeRefererHeader = false;
 
-
 } else {
-  read = true;
   // Reading temperature
   options.method = 'GET';
   options.url = baseUrl;
