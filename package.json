@@ -1,0 +1,13 @@
+{
+  "name": "Nest",
+  "version": "1.0.0",
+  "description": "read and write nest temperature",
+  "main": "./index.js",
+  "keywords": [],
+  "author": "Dylan Armstrong",
+  "private": true,
+  "dependencies": {
+    "request": "^2.88.0"
+  },
+  "license": "MIT"
+}
