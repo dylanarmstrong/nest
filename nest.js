@@ -11,6 +11,12 @@
  *
  */
 
+const commandLineArgs = require('command-line-args');
+const commandLineUsage = require('command-line-usage');
+const fs = require('fs');
+const path = require('path');
+const request = require('request');
+
 const optionDefinitions = [
   {
     description: 'Show help',
@@ -29,12 +35,6 @@ const optionDefinitions = [
     type: Number
   }
 ];
-
-const commandLineArgs = require('command-line-args');
-const commandLineUsage = require('command-line-usage');
-const fs = require('fs');
-const path = require('path');
-const request = require('request');
 
 let options;
 try {
@@ -136,6 +136,7 @@ let nested = 0;
 const req = (err, resp, data) => {
   nested++;
   const { statusCode } = resp;
+  // Redirect
   if (statusCode === 307) {
     if (nested > 3) {
       console.error('Too many redirects!');
@@ -144,7 +145,7 @@ const req = (err, resp, data) => {
       requestOptions.url = resp.headers.location;
       request(requestOptions, req);
     }
-  } else {
+  } else if (statusCode > 199 && statusCode < 300) {
     data = JSON.parse(data);
     if (temp) {
       console.log(data.target_temperature_f);
