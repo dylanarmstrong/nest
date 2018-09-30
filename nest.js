@@ -11,9 +11,75 @@
  *
  */
 
-const request = require('request');
+const optionDefinitions = [
+  {
+    description: 'Show help',
+    name: 'help',
+    type: Boolean
+  },
+  {
+    description: 'Accepts cool or heat, sets mode of thermostat',
+    name: 'mode',
+    type: String
+  },
+  {
+    defaultOption: true,
+    description: 'Temperature to set thermostat to',
+    name: 'temp',
+    type: Number
+  }
+];
+
+const commandLineArgs = require('command-line-args');
+const commandLineUsage = require('command-line-usage');
 const fs = require('fs');
 const path = require('path');
+const request = require('request');
+
+let options;
+try {
+  options = commandLineArgs(optionDefinitions);
+} catch (e) {
+  options = {
+    help: true
+  }
+}
+
+const {
+  mode,
+  temp
+} = options;
+
+if (mode && mode !== 'heat' && mode !== 'cool') {
+  console.error(`Invalid mode '${mode}', accepted values are 'heat' and 'cool'`);
+  options.help = true;
+}
+
+if (temp && (temp > 76 || temp < 65)) {
+  console.error(`${temp} is too crazy!`);
+  options.help = true;
+}
+
+if (options.help) {
+  const usage = commandLineUsage([
+    {
+      content: `Set temperature and mode of nest thermostat
+        nest                | reads temperature
+        nest 72             | sets temperature to 72
+        nest --mode cool 72 | sets mode to cool and temperature to 72`,
+      header: 'Nest'
+    },
+    {
+      header: 'Options',
+      optionList: optionDefinitions
+    },
+    {
+      content: 'If no options provided, reads current temperature'
+    }
+  ]);
+  console.log(usage);
+  process.exit();
+}
 
 const baseUrl = 'https://developer-api.nest.com';
 
@@ -37,51 +103,59 @@ const {
   token
 } = config;
 
-const options = {
+const requestOptions = {
   'headers': {
     'Authorization': 'Bearer ' + token
   },
   'followRedirect': true
 };
 
-const { argv } = process;
-if (argv.length > 2) {
+if (temp || mode) {
   // Writing temperature
-  const temp = Number(argv[2]);
-  if (isNaN(temp) || temp > 76 || temp < 65) {
-    console.log(`${temp} is either not a number or too crazy!`);
-    process.exit(1);
+  requestOptions.method = 'PUT';
+  const nestOptions = {};
+  if (temp) {
+    nestOptions['target_temperature_f'] = temp;
   }
-
-  options.method = 'PUT';
-  options.body = JSON.stringify({ 'target_temperature_f': temp });
-  options.headers['Content-Type'] = 'application/json';
-  options.url = `${baseUrl}/devices/thermostats/${device}`;
-  options.removeRefererHeader = false;
+  if (mode) {
+    nestOptions['hvac_mode'] = mode;
+  }
+  requestOptions.body = JSON.stringify(nestOptions);
+  requestOptions.headers['Content-Type'] = 'application/json';
+  requestOptions.url = `${baseUrl}/devices/thermostats/${device}`;
+  requestOptions.removeRefererHeader = false;
 
 } else {
   // Reading temperature
-  options.method = 'GET';
-  options.url = baseUrl;
-  options.path = '/';
+  requestOptions.method = 'GET';
+  requestOptions.url = baseUrl;
+  requestOptions.path = '/';
 }
 
-request(options, (err, resp, data) => {
+let nested = 0;
+const req = (err, resp, data) => {
+  nested++;
   const { statusCode } = resp;
-  // Redirect
   if (statusCode === 307) {
-    options.url = resp.headers.location;
-    request(options, (_err, _resp, _data) => {
-      if (_resp.statusCode === 200) {
-        _data = JSON.parse(_data);
-        const temp = _data.target_temperature_f;
-        console.log(temp);
-      }
-    });
+    if (nested > 3) {
+      console.error('Too many redirects!');
+      process.exit(1);
+    } else {
+      requestOptions.url = resp.headers.location;
+      request(requestOptions, req);
+    }
   } else {
     data = JSON.parse(data);
-    const temp = data.devices.thermostats[device].target_temperature_f;
-    console.log(temp);
+    if (temp) {
+      console.log(data.target_temperature_f);
+    } else {
+      try {
+        console.log(data.devices.thermostats[device].target_temperature_f);
+      } catch (e) {
+      }
+    }
   }
-});
+};
+
+request(requestOptions, req);
 
