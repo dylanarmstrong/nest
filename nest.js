@@ -103,38 +103,11 @@ const {
   token
 } = config;
 
-const requestOptions = {
-  'headers': {
-    'Authorization': 'Bearer ' + token
-  },
-  'followRedirect': true
-};
-
-if (temp || mode) {
-  // Writing temperature
-  requestOptions.method = 'PUT';
-  const nestOptions = {};
-  if (temp) {
-    nestOptions['target_temperature_f'] = temp;
-  }
-  if (mode) {
-    nestOptions['hvac_mode'] = mode;
-  }
-  requestOptions.body = JSON.stringify(nestOptions);
-  requestOptions.headers['Content-Type'] = 'application/json';
-  requestOptions.url = `${baseUrl}/devices/thermostats/${device}`;
-  requestOptions.removeRefererHeader = false;
-
-} else {
-  // Reading temperature
-  requestOptions.method = 'GET';
-  requestOptions.url = baseUrl;
-  requestOptions.path = '/';
-}
-
-let nested = 0;
 const req = (err, resp, data) => {
   nested++;
+  if (!resp) {
+    return;
+  }
   const { statusCode } = resp;
   // Redirect
   if (statusCode === 307) {
@@ -143,20 +116,70 @@ const req = (err, resp, data) => {
       process.exit(1);
     } else {
       requestOptions.url = resp.headers.location;
-      request(requestOptions, req);
+      return request(requestOptions, req);
     }
   } else if (statusCode > 199 && statusCode < 300) {
     data = JSON.parse(data);
     if (temp) {
-      console.log(data.target_temperature_f);
+      return data.target_temperature_f;
     } else {
       try {
-        console.log(data.devices.thermostats[device].target_temperature_f);
+        return data.devices.thermostats[device].target_temperature_f;
       } catch (e) {
       }
     }
   }
 };
 
-request(requestOptions, req);
+const requestOptions = {
+  'headers': {
+    'Authorization': 'Bearer ' + token
+  },
+  'followRedirect': true
+};
+
+let nested;
+
+const setTemp = (temp) => {
+  // Writing temperature
+  requestOptions.method = 'PUT';
+  requestOptions.body = JSON.stringify({ 'target_temperature_f': temp });
+  requestOptions.headers['Content-Type'] = 'application/json';
+  requestOptions.url = `${baseUrl}/devices/thermostats/${device}`;
+  requestOptions.removeRefererHeader = false;
+  nested = 0;
+  return request(requestOptions, req);
+};
+
+const setMode = (mode) => {
+  // Writing mode
+  requestOptions.method = 'PUT';
+  requestOptions.body = JSON.stringify({ 'hvac_mode': mode });
+  requestOptions.headers['Content-Type'] = 'application/json';
+  requestOptions.url = `${baseUrl}/devices/thermostats/${device}`;
+  requestOptions.removeRefererHeader = false;
+  nested = 0;
+  return request(requestOptions, req);
+};
+
+const read = () => {
+  // Reading temperature
+  requestOptions.method = 'GET';
+  requestOptions.url = baseUrl;
+  requestOptions.path = '/';
+  nested = 0;
+  return request(requestOptions, req);
+};
+
+// Writing temperature
+if (temp) {
+  setTemp(temp);
+}
+
+if (mode) {
+  setMode(mode);
+}
+
+let currentTemp = read();
+console.log(currentTemp);
 
