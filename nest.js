@@ -15,7 +15,7 @@ const commandLineArgs = require('command-line-args');
 const commandLineUsage = require('command-line-usage');
 const fs = require('fs');
 const path = require('path');
-const request = require('request');
+const rp = require('request-promise');
 
 const optionDefinitions = [
   {
@@ -103,32 +103,29 @@ const {
   token
 } = config;
 
-const req = (err, resp, data) => {
-  nested++;
-  if (!resp) {
+const req = (data) => JSON.parse(data).devices.thermostats[device].target_temperature_f;
+
+const reject = (resp) => {
+  const { response } = resp;
+
+  if (!response) {
     return;
   }
-  const { statusCode } = resp;
-  // Redirect
-  if (statusCode === 307) {
-    if (nested > 3) {
-      console.error('Too many redirects!');
-      process.exit(1);
-    } else {
-      requestOptions.url = resp.headers.location;
-      return request(requestOptions, req);
-    }
-  } else if (statusCode > 199 && statusCode < 300) {
-    data = JSON.parse(data);
-    if (temp) {
-      return data.target_temperature_f;
-    } else {
-      try {
-        return data.devices.thermostats[device].target_temperature_f;
-      } catch (e) {
-      }
-    }
+
+  // Rate limit
+  if (response.statusCode === 429) {
+    console.error('Unable to set: rate limit exceeded');
+    return;
   }
+
+  if (nested > 3) {
+    console.error('Unable to set: too many redirects');
+    return;
+  }
+
+  nested++;
+  requestOptions.url = resp.response.headers.location;
+  return rp(requestOptions).catch(reject);
 };
 
 const requestOptions = {
@@ -140,26 +137,27 @@ const requestOptions = {
 
 let nested;
 
-const setTemp = (temp) => {
-  // Writing temperature
+const set = () => {
+  nested = 0;
+
   requestOptions.method = 'PUT';
-  requestOptions.body = JSON.stringify({ 'target_temperature_f': temp });
   requestOptions.headers['Content-Type'] = 'application/json';
   requestOptions.url = `${baseUrl}/devices/thermostats/${device}`;
   requestOptions.removeRefererHeader = false;
-  nested = 0;
-  return request(requestOptions, req);
+
+  return rp(requestOptions).catch(reject);
 };
 
+// Writing temperature
+const setTemp = (temp) => {
+  requestOptions.body = JSON.stringify({ 'target_temperature_f': temp });
+  return set();
+};
+
+// Writing mode
 const setMode = (mode) => {
-  // Writing mode
-  requestOptions.method = 'PUT';
   requestOptions.body = JSON.stringify({ 'hvac_mode': mode });
-  requestOptions.headers['Content-Type'] = 'application/json';
-  requestOptions.url = `${baseUrl}/devices/thermostats/${device}`;
-  requestOptions.removeRefererHeader = false;
-  nested = 0;
-  return request(requestOptions, req);
+  return set();
 };
 
 const read = () => {
@@ -168,18 +166,24 @@ const read = () => {
   requestOptions.url = baseUrl;
   requestOptions.path = '/';
   nested = 0;
-  return request(requestOptions, req);
+
+  return rp(requestOptions).then(req);
 };
 
 // Writing temperature
+const rs = [];
 if (temp) {
-  setTemp(temp);
+  rs.push(setTemp(temp));
 }
 
 if (mode) {
-  setMode(mode);
+  rs.push(setMode(mode));
 }
 
-let currentTemp = read();
-console.log(currentTemp);
+// Doesn't matter if setters overlap, but read can't
+Promise.all(rs).then(() =>
+  read()
+    .then(t => console.log(t))
+    .catch(e => {})
+);
 
